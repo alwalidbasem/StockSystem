@@ -125,6 +125,7 @@ $boot = app_boot_data();
         </div>
       </div>
       <div class="hint-line"><svg class="ic"><use href="#i-spark"/></svg><span>اضغط على أي بطاقة إحصائية للانتقال إلى تفاصيلها، وعلى أي فاتورة لعرضها وطباعتها.</span></div>
+      <div class="card cash-card" id="cashCard"><div class="empty-sm">جارٍ حساب الكاش…</div></div>
       <div class="stats" id="statCards"></div>
       <div class="grid-charts">
         <div class="card">
@@ -804,7 +805,7 @@ $boot = app_boot_data();
 <script>window.APP = <?php echo json_encode($boot, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;</script>
 <script src="./assets/vendor/jquery-3.7.1.min.js"></script>
 <script src="./assets/vendor/chart.umd.min.js"></script>
-<script src="./assets/js/app.js"></script>
+<script src="./assets/js/app.js?v=<?php echo (int) @filemtime(__DIR__ . '/assets/js/app.js'); ?>"></script>
 
   </div>
 </div>

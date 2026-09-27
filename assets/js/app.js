@@ -198,7 +198,7 @@
     $('html').attr('data-theme', t);
     localStorage.setItem('nc-theme', t);
     $('#btnTheme').html('<svg class="ic"><use href="#i-' + (t === 'dark' ? 'sun' : 'moon') + '"/></svg>');
-    if (state.view === 'dashboard' && state.cache.dashboard) { renderDashboard(); }
+    if (state.view === 'dashboard' && state.cache.dashboard) { paintDashboard(state.cache.dashboard, state.cache.dashRange || resolveRange('dash', '#dashFrom', '#dashTo')); }
   }
   function toggleTheme() { setTheme($('html').attr('data-theme') === 'dark' ? 'light' : 'dark'); }
 
@@ -207,12 +207,12 @@
      ====================================================================== */
   function resolveRange(key, fromSel, toSel) {
     var f = state.filters[key], t = todayStr(), d, a, b;
-    switch (f.range) {
+    switch (String(f.range)) {
       case 'all':   return { from: '', to: '', label: 'كل الفترات' };
-      case 'today': return { from: t, to: t, label: 'اليوم' };
-      case '7':     return { from: shiftDay(t, -6), to: t, label: 'آخر 7 أيام' };
-      case '30':    return { from: shiftDay(t, -29), to: t, label: 'آخر 30 يوم' };
-      case '90':    return { from: shiftDay(t, -89), to: t, label: 'آخر 90 يوم' };
+      case 'today': return { from: t, to: t, label: 'اليوم | ' };
+      case '7':     return { from: shiftDay(t, -6), to: t, label: 'آخر 7 أيام | ' };
+      case '30':    return { from: shiftDay(t, -29), to: t, label: 'آخر 30 يوم | ' };
+      case '90':    return { from: shiftDay(t, -89), to: t, label: 'آخر 90 يوم | ' };
       case 'month':
         d = new Date();
         return { from: iso(new Date(d.getFullYear(), d.getMonth(), 1)), to: t, label: 'هذا الشهر' };
@@ -226,7 +226,7 @@
     $(chips).on('click', 'button', function () {
       $(chips).find('button').removeClass('active');
       $(this).addClass('active');
-      state.filters[key].range = $(this).data('r');
+      state.filters[key].range = String($(this).data('r'));
       $(custom).css('display', state.filters[key].range === 'custom' ? 'flex' : 'none');
       if (state.filters[key].range === 'custom') {
         if (!$(fromSel).val()) { $(fromSel).val(shiftDay(todayStr(), -29)); }
@@ -311,16 +311,49 @@
     var chartFrom = shiftDay(todayStr(), -13), chartTo = todayStr();
     $('#topRangeLbl').text(r.label);
 
+    /* Guard against out-of-order responses when the user clicks filters fast:
+       only the latest request is allowed to paint. */
+    state.dashSeq = (state.dashSeq || 0) + 1;
+    var seq = state.dashSeq;
     call('dashboard.php', {
       action: 'stats', from: r.from, to: r.to, chart_from: chartFrom, chart_to: chartTo
     }, function (res) {
+      if (seq !== state.dashSeq) { return; }
       state.cache.dashboard = res;
+      state.cache.dashRange = r;
       paintDashboard(res, r);
     });
   }
 
   function paintDashboard(res, r) {
     var k = res.kpis;
+
+    /* الكاش: الإيرادات اليومية − المصروفات، + كاش نافذة الفلتر بعد دفع المستحقات */
+    var cashRange = (k.cash_range !== undefined) ? k.cash_range : k.cash_30;
+    var cashRangeAfter = (k.cash_range_after_suppliers !== undefined) ? k.cash_range_after_suppliers : k.cash_30_after_suppliers;
+    var cashRangeIncome = (k.cash_range_income !== undefined) ? k.cash_range_income : k.cash_30_income;
+    var cashRangeExp = (k.cash_range_expenses !== undefined) ? k.cash_range_expenses : k.cash_30_expenses;
+    var cashAfterCls = num(cashRangeAfter) >= 0 ? 'up' : 'warn';
+    var cashTodayCls = num(k.cash_today) >= 0 ? 'up' : 'warn';
+    $('#cashCard').html(
+      '<div class="cash-top">' +
+      '<div class="tile cash-tile"><svg class="ic" style="width:22px;height:22px"><use href="#i-card"/></svg></div>' +
+      '<div class="cash-title"><b>الكاش</b><small>الإيرادات اليومية − المصروفات</small></div>' +
+      '<span class="delta ' + cashTodayCls + '">اليوم</span>' +
+      '</div>' +
+      '<div class="cash-grid">' +
+      '<div class="cash-main"><b class="v" data-v="' + num(k.cash_today) + '" data-pre="' + sym() + '">' + sym() + '0</b>' +
+      '<small>إيرادات اليوم ' + money0(k.cash_today_income) + ' · مصروفات اليوم ' + money0(k.cash_today_expenses) + '</small></div>' +
+      '<div class="cash-side">' +
+      '<div class="cash-row"><span>الكاش · ' + esc(r.label) + '<small class="cash-sub">إيرادات ' + money0(cashRangeIncome) + ' · مصروفات ' + money0(cashRangeExp) + '</small></span><b class="v" data-v="' + num(cashRange) + '" data-pre="' + sym() + '">' + sym() + '0</b></div>' +
+      '<div class="cash-row hi"><span>بعد دفع المستحقات للموردين : ' + money0(k.supplier_due) + '</span>' +
+      '<span class="cash-after"><b class="v" data-v="' + num(cashRangeAfter) + '" data-pre="' + sym() + '">' + sym() + '0</b>' +
+      '<span class="delta ' + cashAfterCls + '">' + (num(cashRangeAfter) >= 0 ? 'متاح' : 'عجز') + '</span></span></div>' +
+      '</div></div>'
+    );
+    $('#cashCard .v').each(function () {
+      countUp(this, $(this).data('v'), { prefix: $(this).data('pre') || '' });
+    });
 
     $('#statCards').html(
       statCard('card', '#0ea5e9', 'الإيرادات · ' + r.label,

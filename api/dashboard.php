@@ -29,6 +29,21 @@ api_run(static function (): array {
     $supPaid  = round((float) scalar($pdo, "SELECT COALESCE(SUM(amount), 0) FROM supplier_bills WHERE status = 'Paid'", [], 0), 2);
     $supParts = (int) scalar($pdo, "SELECT COUNT(*) FROM supplier_bills WHERE status = 'Due'", [], 0);
 
+    /* ---------------- Cash card (الكاش) ----------------
+       cash_today  = daily income (invoices total + maintenance price for TODAY) - daily expenses (bills).
+       cash_range  = same formula over the dashboard range window (from → to),
+                     so it follows the 7 / 30 / 90 / month / custom filter.
+       cash_range_after_suppliers = cash_range - supplier_due (all-time unpaid supplier parts). */
+    $today     = today();
+    $dayInv    = (float) scalar($pdo, 'SELECT COALESCE(SUM(total), 0) FROM invoices WHERE entry_date = ?', [$today], 0);
+    $dayMnt    = (float) scalar($pdo, 'SELECT COALESCE(SUM(price), 0) FROM maintenance WHERE entry_date = ?', [$today], 0);
+    $dayExp    = (float) scalar($pdo, 'SELECT COALESCE(SUM(amount), 0) FROM bills WHERE entry_date = ?', [$today], 0);
+    $dayIncome = $dayInv + $dayMnt;
+    $cashToday = $dayIncome - $dayExp;
+    /* Range cash follows the dashboard filter window (from → to):
+       same as the revenue/expenses KPIs — income minus expenses. */
+    $cashRange = ($revenue + $mntPrice) - $expTotal;
+
     $kpis = [
         'from'                => $from,
         'to'                  => $to,
@@ -45,6 +60,23 @@ api_run(static function (): array {
         'supplier_paid'       => $supPaid,
         'supplier_due_parts'  => $supParts,
         'income'              => round($revenue + $mntPrice, 2),
+        'cash_today'          => round($cashToday, 2),
+        'cash_today_income'   => round($dayIncome, 2),
+        'cash_today_expenses' => round($dayExp, 2),
+        /* Range-window values (follow the 7/30/90/month/custom filter).
+           Legacy cash_30* keys are kept as aliases of the range values. */
+        'cash_range'              => round($cashRange, 2),
+        'cash_range_income'       => round($revenue + $mntPrice, 2),
+        'cash_range_expenses'     => round($expTotal, 2),
+        'cash_range_after_suppliers' => round($cashRange - $supDue, 2),
+        'cash_range_from'         => $from,
+        'cash_range_to'           => $to,
+        'cash_30'             => round($cashRange, 2),
+        'cash_30_income'      => round($revenue + $mntPrice, 2),
+        'cash_30_expenses'    => round($expTotal, 2),
+        'cash_30_after_suppliers' => round($cashRange - $supDue, 2),
+        'cash_30_from'        => $from,
+        'cash_30_to'          => $to,
         'bills'               => (int) scalar($pdo, 'SELECT COUNT(*) FROM invoices WHERE entry_date BETWEEN ? AND ?', [$from, $to], 0),
         'units_sold'          => (int) scalar($pdo, 'SELECT COALESCE(SUM(ii.qty), 0) FROM invoice_items ii
                                                     JOIN invoices v ON v.id = ii.invoice_id
@@ -52,7 +84,7 @@ api_run(static function (): array {
         'items'               => (int) scalar($pdo, 'SELECT COUNT(*) FROM items', [], 0),
         'units_in_stock'      => (int) scalar($pdo, 'SELECT COALESCE(SUM(qty), 0) FROM items', [], 0),
         /* إجمالي قيمة المخزون = مجموع (الكمية × سعر البيع) لكل الأصناف — كل الوقت. */
-        'stock_value'         => round((float) scalar($pdo, 'SELECT COALESCE(SUM(qty * price), 0) FROM items', [], 0), 2),
+        'stock_value'         => round((float) scalar($pdo, 'SELECT COALESCE(SUM(qty * wholesale), 0) FROM items', [], 0), 2),
         'stock_cost'          => round((float) scalar($pdo, 'SELECT COALESCE(SUM(qty * COALESCE(wholesale, 0)), 0) FROM items', [], 0), 2),
         'stock_potential'     => round((float) scalar($pdo, 'SELECT COALESCE(SUM(qty * profit), 0) FROM items', [], 0), 2),
         'low_stock'           => (int) scalar($pdo, 'SELECT COUNT(*) FROM items WHERE qty <= IF(low_stock > 0, low_stock, ?)', [$low], 0),
